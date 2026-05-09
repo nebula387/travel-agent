@@ -1,0 +1,47 @@
+# Web framework
+fastapi==0.115.5
+uvicorn[standard]==0.32.1
+python-multipart==0.0.12
+
+# Telegram bot
+python-telegram-bot[webhooks]==21.6
+
+# LLM
+google-generativeai==0.8.3
+groq==0.11.0
+
+# Database
+sqlalchemy[asyncio]==2.0.36
+asyncpg==0.30.0
+alembic==1.14.0
+
+# Redis / Cache
+redis==5.2.0
+celery[redis]==5.4.0
+
+# HTTP client
+httpx==0.28.1
+
+# Config
+pydantic-settings==2.6.1
+pydantic==2.10.1
+python-dotenv==1.0.1
+
+# Google Maps
+googlemaps==4.10.0
+
+# HTML parsing (DuckDuckGo search)
+beautifulsoup4==4.12.3
+lxml==5.3.0
+
+# Utilities
+orjson==3.10.11
+tenacity==9.0.0
+structlog==24.4.0
+
+# Dev / Testing
+pytest==8.3.3
+pytest-asyncio==0.24.0
+pytest-httpx==0.35.0
+ruff==0.8.0
+mypy==1.13.0

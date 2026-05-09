@@ -1,0 +1,122 @@
+services:
+  app:
+    build:
+      context: .
+      target: runtime
+    container_name: travel_app
+    restart: unless-stopped
+    env_file: .env
+    ports:
+      - "${PORT:-8001}:8001"
+    depends_on:
+      db:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    volumes:
+      - ./app:/app/app
+      - ./alembic:/app/alembic
+      - ./tests:/app/tests
+      - ./workers:/app/workers
+      - ./pytest.ini:/app/pytest.ini
+    networks:
+      - travel_net
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8001/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 40s
+
+  worker:
+    build:
+      context: .
+      target: runtime
+    container_name: travel_worker
+    restart: unless-stopped
+    command: celery -A workers.celery_app worker --loglevel=info --concurrency=4
+    env_file: .env
+    depends_on:
+      db:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    volumes:
+      - ./app:/app/app
+      - ./workers:/app/workers
+    networks:
+      - travel_net
+
+  beat:
+    build:
+      context: .
+      target: runtime
+    container_name: travel_beat
+    restart: unless-stopped
+    command: celery -A workers.celery_app beat --loglevel=info --scheduler celery.beat:PersistentScheduler
+    env_file: .env
+    depends_on:
+      redis:
+        condition: service_healthy
+    volumes:
+      - ./workers:/app/workers
+    networks:
+      - travel_net
+
+  db:
+    image: postgres:16-alpine
+    container_name: travel_db
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: travel
+      POSTGRES_PASSWORD: travel
+      POSTGRES_DB: travel_agent
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    networks:
+      - travel_net
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U travel -d travel_agent"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 10s
+
+  redis:
+    image: redis:7-alpine
+    container_name: travel_redis
+    restart: unless-stopped
+    command: redis-server --maxmemory 256mb --maxmemory-policy allkeys-lru
+    volumes:
+      - redis_data:/data
+    networks:
+      - travel_net
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  # nginx используется только локально (profiles: dev).
+  # На GCE VM хостовый nginx проксирует в app:8001 напрямую.
+  nginx:
+    image: nginx:alpine
+    container_name: travel_nginx
+    restart: unless-stopped
+    profiles: ["dev"]
+    ports:
+      - "80:80"
+    volumes:
+      - ./deploy/nginx.dev.conf:/etc/nginx/conf.d/default.conf:ro
+    depends_on:
+      - app
+    networks:
+      - travel_net
+
+volumes:
+  postgres_data:
+  redis_data:
+
+networks:
+  travel_net:
+    driver: bridge

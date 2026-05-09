@@ -1,0 +1,64 @@
+name: Deploy to GCE
+
+on:
+  push:
+    branches: [main]
+    # Не деплоим если изменились только документация или тесты
+    paths-ignore:
+      - '**.md'
+      - 'tests/**'
+      - '.github/**'
+      - 'CLAUDE.md'
+
+  # Ручной запуск из GitHub UI
+  workflow_dispatch:
+    inputs:
+      reason:
+        description: 'Причина ручного деплоя'
+        required: false
+        default: 'manual trigger'
+
+jobs:
+  deploy:
+    name: Deploy travel-agent
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+
+    steps:
+      - name: Checkout (для проверки синтаксиса)
+        uses: actions/checkout@v4
+
+      - name: Lint Python (быстрая проверка перед деплоем)
+        uses: astral-sh/ruff-action@v1
+        with:
+          args: check app/ workers/ --select E,F --ignore F401
+        continue-on-error: true  # Не блокируем деплой из-за линтера
+
+      - name: Deploy via SSH
+        uses: appleboy/ssh-action@v1.0.3
+        with:
+          host:     ${{ secrets.DEPLOY_HOST }}
+          username: ${{ secrets.DEPLOY_USER }}
+          key:      ${{ secrets.DEPLOY_SSH_PRIVATE_KEY }}
+          port:     ${{ secrets.DEPLOY_PORT || 22 }}
+          command_timeout: 12m
+          script: |
+            set -e
+            cd /opt/travel-agent
+            bash deploy/deploy.sh
+
+      - name: Verify health
+        run: |
+          echo "Проверяю health endpoint..."
+          sleep 5
+          STATUS=$(curl -sf "https://bot.grip2peak.com/health" || echo "FAIL")
+          echo "Health: $STATUS"
+          echo "$STATUS" | grep -q '"status":"ok"' || exit 1
+
+      - name: Notify on failure
+        if: failure()
+        run: |
+          echo "::error::Деплой не удался — проверь логи выше"
+          echo "Быстрая диагностика:"
+          echo "  ssh ${{ secrets.DEPLOY_USER }}@${{ secrets.DEPLOY_HOST }}"
+          echo "  docker compose logs --tail=50 app"
