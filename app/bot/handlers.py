@@ -161,6 +161,7 @@ async def _reply(update: Update, text: str, keyboard: InlineKeyboardMarkup | Non
 async def _do_explore(subject: str, user: User | None) -> tuple[str, InlineKeyboardMarkup]:
     from app.bot.keyboards import kb_after_explore
     from app.bot.messages import fmt_stub
+    from app.tools.maps import search_places
 
     budget_ctx = f"\nБюджет пользователя: ${user.monthly_budget}/мес." if user and user.monthly_budget else ""
     prompt = (
@@ -177,6 +178,19 @@ async def _do_explore(subject: str, user: User | None) -> tuple[str, InlineKeybo
         f"Используй HTML-теги <b> и <i>."
     )
     text = await _llm(prompt) or fmt_stub("explore", subject)
+
+    # Append clickable places from Google Maps
+    places = await search_places("tourist attraction", subject, radius=5000)
+    if places:
+        links = []
+        for p in places[:5]:
+            url = f"https://www.google.com/maps/place/?q=place_id:{p['place_id']}"
+            rating = f" ⭐{p['rating']}" if p.get("rating") else ""
+            links.append(f'• <a href="{url}">{p["name"]}</a>{rating}')
+        places_block = "\n\n📍 <b>Достопримечательности на карте:</b>\n" + "\n".join(links)
+        if len(text) + len(places_block) <= 4000:
+            text += places_block
+
     return text, kb_after_explore(subject)
 
 
@@ -271,6 +285,7 @@ async def _do_flights(subject: str, user: User | None) -> tuple[str, InlineKeybo
 async def _do_nomad(subject: str, user: User | None) -> tuple[str, InlineKeyboardMarkup]:
     from app.bot.keyboards import kb_after_nomad
     from app.bot.messages import fmt_stub
+    from app.tools.maps import search_places
 
     prompt = (
         f"Инфраструктура для digital nomad в {subject}.\n"
@@ -287,6 +302,31 @@ async def _do_nomad(subject: str, user: User | None) -> tuple[str, InlineKeyboar
         f"Используй HTML-теги <b> и <i>."
     )
     text = await _llm(prompt) or fmt_stub("nomad", subject)
+
+    cowork, cafes = await asyncio.gather(
+        search_places("coworking space", subject, radius=5000),
+        search_places("cafe wifi", subject, radius=3000),
+    )
+    sections = []
+    if cowork:
+        links = [
+            f'• <a href="https://www.google.com/maps/place/?q=place_id:{p["place_id"]}">{p["name"]}</a>'
+            + (f' ⭐{p["rating"]}' if p.get("rating") else "")
+            for p in cowork[:3]
+        ]
+        sections.append("💻 <b>Коворкинги на карте:</b>\n" + "\n".join(links))
+    if cafes:
+        links = [
+            f'• <a href="https://www.google.com/maps/place/?q=place_id:{p["place_id"]}">{p["name"]}</a>'
+            + (f' ⭐{p["rating"]}' if p.get("rating") else "")
+            for p in cafes[:3]
+        ]
+        sections.append("☕ <b>Кафе для работы на карте:</b>\n" + "\n".join(links))
+    if sections:
+        block = "\n\n📍 " + "\n\n📍 ".join(sections)
+        if len(text) + len(block) <= 4000:
+            text += block
+
     return text, kb_after_nomad(subject)
 
 
