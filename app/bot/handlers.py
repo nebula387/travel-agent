@@ -612,6 +612,7 @@ async def cmd_map(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
         latitude=lat,
         longitude=lng,
     )
+    context.user_data["map_msg_id"] = msg.message_id
 
 
 async def cmd_places(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
@@ -638,6 +639,7 @@ async def cmd_places(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None
     await _edit(msg, "\n".join(lines))
 
     from telegram import InlineKeyboardMarkup, InlineKeyboardButton
+    last_place_msg = None
     for p in places[:3]:
         maps_url = f"https://www.google.com/maps/place/?q=place_id:{p['place_id']}"
         kb = InlineKeyboardMarkup([[InlineKeyboardButton(f"🗺 {p['name']}", url=maps_url)]])
@@ -646,10 +648,12 @@ async def cmd_places(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None
             latitude=p["lat"],
             longitude=p["lng"],
         )
-        await update.effective_message.reply_html(
+        last_place_msg = await update.effective_message.reply_html(
             f"📍 <b>{p['name']}</b>" + (f" ⭐ {p['rating']}" if p.get("rating") else ""),
             reply_markup=kb,
         )
+    if last_place_msg:
+        context.user_data["map_msg_id"] = last_place_msg.message_id
 
 
 # ── Free-text handler ──────────────────────────────────────────────────────────
@@ -674,6 +678,18 @@ async def msg_handler(update: Update, context: ContextTypes.DEFAULT_TYPE) -> Non
     if user and not user.onboarding_done:
         await update.message.reply_html("Сначала настрой профиль командой /start 👆")
         return
+
+    # Remove keyboard from previous map message
+    map_msg_id = context.user_data.pop("map_msg_id", None)
+    if map_msg_id:
+        try:
+            await context.bot.edit_message_reply_markup(
+                chat_id=update.effective_chat.id,
+                message_id=map_msg_id,
+                reply_markup=None,
+            )
+        except Exception:
+            pass
 
     # If user clicked a menu button — route to the right command
     pending_cmd = context.user_data.pop("pending_cmd", None)
