@@ -8,13 +8,13 @@ A production-deployed multi-agent AI system that turns a Telegram chat into a co
 
 ## Demo
 
-| Explore a city | Visa check | Interactive map |
-|:-:|:-:|:-:|
-| ![Explore](media/demo_explore.png) | ![Visa](media/demo_visa.png) | ![Map](media/demo_map.png) |
+| Explore a city | Browse & navigate |
+|:-:|:-:|
+| ![Explore](media/explore.jpg) | ![Browse](media/browse.jpg) |
 
-| Cost of living | Flight search | Round-the-world plan |
-|:-:|:-:|:-:|
-| ![Budget](media/demo_budget.png) | ![Flights](media/demo_flights.png) | ![Worldtrip](media/demo_worldtrip.png) |
+| Interactive map | Nearby places |
+|:-:|:-:|
+| ![Map](media/map.jpg) | ![Places](media/places.jpg) |
 
 ---
 
