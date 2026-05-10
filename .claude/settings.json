@@ -16,7 +16,10 @@
       "Bash(bash -n deploy/setup.sh)",
       "Bash(bash -n deploy/deploy.sh)",
       "Bash(bash -n deploy/set_webhook.sh)",
-      "Bash(python3 -c ' *)"
+      "Bash(python3 -c ' *)",
+      "Bash(git add *)",
+      "Bash(git commit *)",
+      "Bash(git push *)"
     ],
     "additionalDirectories": [
       "c:\\Users\\user\\.claude\\projects\\c--AI-projects-travel-agent\\memory"
