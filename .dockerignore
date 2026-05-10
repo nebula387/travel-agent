@@ -1,0 +1,22 @@
+# Dev / docs — not needed inside the container
+media/
+*.md
+.git
+.gitignore
+.env.example
+.vscode/
+.idea/
+tests/
+deploy/
+alembic/versions/*.pyc
+__pycache__/
+*.py[cod]
+*.log
+logs/
+.coverage
+htmlcov/
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+postgres_data/
+redis_data/
