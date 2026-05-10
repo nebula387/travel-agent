@@ -81,7 +81,7 @@ async def _llm(prompt: str, timeout: float = 25.0) -> str | None:
         import google.generativeai as genai
         genai.configure(api_key=key)
         model = genai.GenerativeModel(
-            "gemini-1.5-flash",
+            "gemini-2.0-flash",
             system_instruction=SYSTEM_PROMPT,
         )
         resp = await asyncio.wait_for(
@@ -546,14 +546,14 @@ async def cb_handler(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None
 
     # Menu shortcuts (no subject)
     menu_prompts = {
-        "menu:explore": ("🌍", "Введи страну командой /explore <страна>"),
-        "menu:visa": ("📋", "Введи страну командой /visa <страна>"),
-        "menu:flights": ("✈️", "Введи маршрут командой /flights <откуда> <куда>"),
-        "menu:weather": ("🌤", "Введи город командой /weather <город>"),
-        "menu:budget": ("💰", "Введи город командой /budget <город>"),
-        "menu:nomad": ("🏠", "Введи город командой /nomad <город>"),
-        "menu:worldtrip": ("🌐", "Используй /worldtrip <бюджет_USD>"),
-        "menu:route": ("🗺", "Введи маршрут командой /route <откуда> <куда>"),
+        "menu:explore": ("🌍", "Введи страну: <code>/explore Таиланд</code>"),
+        "menu:visa": ("📋", "Введи страну: <code>/visa Таиланд</code>"),
+        "menu:flights": ("✈️", "Введи маршрут: <code>/flights Москва Бангкок</code>"),
+        "menu:weather": ("🌤", "Введи город: <code>/weather Бангкок</code>"),
+        "menu:budget": ("💰", "Введи город: <code>/budget Бангкок</code>"),
+        "menu:nomad": ("🏠", "Введи город: <code>/nomad Бангкок</code>"),
+        "menu:worldtrip": ("🌐", "Используй: <code>/worldtrip 800</code>"),
+        "menu:route": ("🗺", "Введи маршрут: <code>/route Бангкок Чиангмай</code>"),
         "menu:help": None,
         "cancel": None,
     }
