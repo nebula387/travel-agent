@@ -73,7 +73,13 @@ async def _save_user(user_id: int, **kwargs) -> None:
 
 # ── LLM helper ─────────────────────────────────────────────────────────────────
 
-async def _llm(prompt: str, timeout: float = 25.0) -> str | None:
+async def _llm(
+    prompt: str,
+    timeout: float = 25.0,
+    history: list[dict] | None = None,
+) -> str | None:
+    recent = (history or [])[-10:]
+
     # Primary: Gemini
     if settings.gemini_api_key and settings.gemini_api_key != "placeholder":
         try:
@@ -83,8 +89,16 @@ async def _llm(prompt: str, timeout: float = 25.0) -> str | None:
                 "gemini-2.0-flash",
                 system_instruction=SYSTEM_PROMPT,
             )
+            if recent:
+                ctx = "\n".join(
+                    f"{'User' if m['role'] == 'user' else 'Bot'}: {m['content'][:300]}"
+                    for m in recent
+                )
+                full_prompt = f"Предыдущий диалог:\n{ctx}\n\n{prompt}"
+            else:
+                full_prompt = prompt
             resp = await asyncio.wait_for(
-                model.generate_content_async(prompt),
+                model.generate_content_async(full_prompt),
                 timeout=timeout,
             )
             return resp.text
@@ -97,16 +111,16 @@ async def _llm(prompt: str, timeout: float = 25.0) -> str | None:
     if settings.groq_api_key and settings.groq_api_key != "placeholder":
         try:
             import httpx
+            messages = [{"role": "system", "content": SYSTEM_PROMPT}]
+            messages.extend(recent)
+            messages.append({"role": "user", "content": prompt})
             async with httpx.AsyncClient(timeout=timeout) as client:
                 resp = await client.post(
                     "https://api.groq.com/openai/v1/chat/completions",
                     headers={"Authorization": f"Bearer {settings.groq_api_key}"},
                     json={
-                        "model": "llama-3.1-70b-versatile",
-                        "messages": [
-                            {"role": "system", "content": SYSTEM_PROMPT},
-                            {"role": "user", "content": prompt},
-                        ],
+                        "model": "llama-3.3-70b-versatile",
+                        "messages": messages,
                         "max_tokens": 1500,
                     },
                 )
@@ -116,6 +130,13 @@ async def _llm(prompt: str, timeout: float = 25.0) -> str | None:
             logger.exception("Groq fallback also failed")
 
     return None
+
+
+def _add_to_history(context: ContextTypes.DEFAULT_TYPE, user_msg: str, bot_reply: str) -> None:
+    history: list[dict] = context.user_data.setdefault("history", [])
+    history.append({"role": "user", "content": user_msg})
+    history.append({"role": "assistant", "content": bot_reply[:500]})
+    context.user_data["history"] = history[-20:]
 
 
 # ── Safe send/edit helpers ─────────────────────────────────────────────────────
@@ -316,7 +337,13 @@ async def _do_worldtrip(budget: int, user: User | None) -> tuple[str, InlineKeyb
 # ── Onboarding handlers ────────────────────────────────────────────────────────
 
 async def cmd_start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
-    await _get_or_create_user(update.effective_user)
+    context.user_data.pop("history", None)
+    user = await _get_or_create_user(update.effective_user)
+    if user and user.onboarding_done:
+        from app.bot.messages import fmt_welcome_back
+        from app.bot.keyboards import kb_main_menu
+        await _reply(update, fmt_welcome_back(user), kb_main_menu())
+        return ConversationHandler.END
     from app.bot.messages import MSG_WELCOME_NEW
     await update.effective_message.reply_html(
         MSG_WELCOME_NEW,
@@ -397,6 +424,11 @@ async def cancel_onboard(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
 
 # ── Command handlers ───────────────────────────────────────────────────────────
 
+async def cmd_clear(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    context.user_data.pop("history", None)
+    await _reply(update, "🗑 История диалога очищена. Начинаем заново!")
+
+
 async def cmd_help(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     from app.bot.messages import fmt_help
     from app.bot.keyboards import kb_main_menu
@@ -413,6 +445,7 @@ async def cmd_explore(update: Update, context: ContextTypes.DEFAULT_TYPE) -> Non
     user = await _get_or_create_user(update.effective_user)
     text, kb = await _do_explore(subject, user)
     await _edit(msg, text, kb)
+    _add_to_history(context, f"explore {subject}", text)
 
 
 async def cmd_visa(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
@@ -425,6 +458,7 @@ async def cmd_visa(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     user = await _get_or_create_user(update.effective_user)
     text, kb = await _do_visa(subject, user)
     await _edit(msg, text, kb)
+    _add_to_history(context, f"visa {subject}", text)
 
 
 async def cmd_weather(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
@@ -523,11 +557,10 @@ async def msg_handler(update: Update, context: ContextTypes.DEFAULT_TYPE) -> Non
 
     user = await _get_or_create_user(update.effective_user)
     if user and not user.onboarding_done:
-        from app.bot.messages import MSG_WELCOME_NEW
-        await update.message.reply_html(
-            "Сначала настрой профиль командой /start 👆"
-        )
+        await update.message.reply_html("Сначала настрой профиль командой /start 👆")
         return
+
+    history: list[dict] = context.user_data.setdefault("history", [])
 
     msg = await _reply(update, f"🔍 Исследую <b>{text}</b>…")
     await context.bot.send_chat_action(update.effective_chat.id, ChatAction.TYPING)
@@ -538,13 +571,13 @@ async def msg_handler(update: Update, context: ContextTypes.DEFAULT_TYPE) -> Non
         f"Если вопрос о путешествии — ответь по существу. "
         f"Используй HTML-теги <b> и <i> и эмодзи."
     )
-    answer = await _llm(prompt)
+    answer = await _llm(prompt, history=history)
     if not answer:
         answer = (
-            "🤖 Подключи <code>GEMINI_API_KEY</code> в <code>.env</code> "
-            "и я смогу отвечать на любые вопросы о путешествиях!\n\n"
-            "А пока используй команды из /help"
+            "🤖 LLM временно недоступен. Попробуй через минуту или используй команды из /help"
         )
+    else:
+        _add_to_history(context, text, answer)
 
     from app.bot.keyboards import kb_main_menu
     await _edit(msg, answer, kb_main_menu())
@@ -656,6 +689,7 @@ def _register_handlers(app: Application) -> None:
     )
 
     app.add_handler(conv)
+    app.add_handler(CommandHandler("clear", cmd_clear))
     app.add_handler(CommandHandler("help", cmd_help))
     app.add_handler(CommandHandler("explore", cmd_explore))
     app.add_handler(CommandHandler("visa", cmd_visa))
