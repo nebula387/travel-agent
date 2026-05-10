@@ -548,6 +548,70 @@ async def cmd_status(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None
     await _reply(update, fmt_status([]))
 
 
+async def cmd_map(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    if not context.args:
+        await _reply(update, "❓ Укажи место. Пример: <code>/map Wat Pho Bangkok</code>")
+        return
+    query = " ".join(context.args)
+    msg = await _reply(update, f"🗺 Ищу <b>{query}</b> на карте…")
+    await context.bot.send_chat_action(update.effective_chat.id, ChatAction.TYPING)
+
+    from app.tools.maps import geocode
+    geo = await geocode(query)
+    if not geo:
+        await _edit(msg, f"❌ Место не найдено: <b>{query}</b>\nПопробуй точнее: <code>/map Chatrium Hotel Bangkok</code>")
+        return
+
+    lat, lng = geo["lat"], geo["lng"]
+    maps_url = f"https://www.google.com/maps/search/?api=1&query={lat},{lng}"
+    from telegram import InlineKeyboardMarkup, InlineKeyboardButton
+    kb = InlineKeyboardMarkup([[InlineKeyboardButton("🗺 Открыть в Google Maps", url=maps_url)]])
+    await _edit(msg, f"📍 <b>{geo['formatted_address']}</b>", kb)
+    await context.bot.send_location(
+        chat_id=update.effective_chat.id,
+        latitude=lat,
+        longitude=lng,
+    )
+
+
+async def cmd_places(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    if len(context.args) < 2:
+        await _reply(update, "❓ Пример: <code>/places хостел Бангкок</code> или <code>/places кафе Чиангмай</code>")
+        return
+    ptype = context.args[0]
+    city = " ".join(context.args[1:])
+    msg = await _reply(update, f"🔍 Ищу <b>{ptype}</b> в <b>{city}</b>…")
+    await context.bot.send_chat_action(update.effective_chat.id, ChatAction.TYPING)
+
+    from app.tools.maps import search_places
+    places = await search_places(ptype, city, radius=3000)
+    if not places:
+        await _edit(msg, f"❌ Ничего не найдено: <b>{ptype}</b> в <b>{city}</b>")
+        return
+
+    lines = [f"📍 <b>{ptype.upper()} — {city.upper()}</b>\n"]
+    for i, p in enumerate(places[:5], 1):
+        rating = f"⭐ {p['rating']}" if p.get("rating") else ""
+        lines.append(f"{i}. <b>{p['name']}</b> {rating}")
+        if p.get("address"):
+            lines.append(f"   {p['address']}")
+    await _edit(msg, "\n".join(lines))
+
+    from telegram import InlineKeyboardMarkup, InlineKeyboardButton
+    for p in places[:3]:
+        maps_url = f"https://www.google.com/maps/place/?q=place_id:{p['place_id']}"
+        kb = InlineKeyboardMarkup([[InlineKeyboardButton(f"🗺 {p['name']}", url=maps_url)]])
+        await context.bot.send_location(
+            chat_id=update.effective_chat.id,
+            latitude=p["lat"],
+            longitude=p["lng"],
+        )
+        await update.effective_message.reply_html(
+            f"📍 <b>{p['name']}</b>" + (f" ⭐ {p['rating']}" if p.get("rating") else ""),
+            reply_markup=kb,
+        )
+
+
 # ── Free-text handler ──────────────────────────────────────────────────────────
 
 async def msg_handler(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
@@ -630,6 +694,49 @@ async def cb_handler(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None
     if not subject:
         return
 
+    # Map callback — send location pin without editing the original message
+    if cmd == "places":
+        await query.answer("🔍 Ищу места…")
+        from app.tools.maps import search_places
+        from telegram import InlineKeyboardMarkup, InlineKeyboardButton
+        places = await search_places("", subject, radius=3000)
+        for p in places[:3]:
+            maps_url = f"https://www.google.com/maps/place/?q=place_id:{p['place_id']}"
+            kb = InlineKeyboardMarkup([[InlineKeyboardButton(f"🗺 {p['name']}", url=maps_url)]])
+            await context.bot.send_location(
+                chat_id=update.effective_chat.id,
+                latitude=p["lat"],
+                longitude=p["lng"],
+            )
+            await context.bot.send_message(
+                chat_id=update.effective_chat.id,
+                text=f"📍 <b>{p['name']}</b>" + (f" ⭐ {p['rating']}" if p.get("rating") else ""),
+                parse_mode=ParseMode.HTML,
+                reply_markup=kb,
+            )
+        return
+
+    if cmd == "map":
+        await query.answer("🗺 Ищу на карте…")
+        from app.tools.maps import geocode
+        from telegram import InlineKeyboardMarkup, InlineKeyboardButton
+        geo = await geocode(subject)
+        if geo:
+            maps_url = f"https://www.google.com/maps/search/?api=1&query={geo['lat']},{geo['lng']}"
+            kb = InlineKeyboardMarkup([[InlineKeyboardButton("🗺 Google Maps", url=maps_url)]])
+            await context.bot.send_location(
+                chat_id=update.effective_chat.id,
+                latitude=geo["lat"],
+                longitude=geo["lng"],
+            )
+            await context.bot.send_message(
+                chat_id=update.effective_chat.id,
+                text=f"📍 <b>{geo['formatted_address']}</b>",
+                parse_mode=ParseMode.HTML,
+                reply_markup=kb,
+            )
+        return
+
     await query.edit_message_text(
         f"🔍 Загружаю <b>{subject}</b>…", parse_mode=ParseMode.HTML
     )
@@ -700,6 +807,8 @@ def _register_handlers(app: Application) -> None:
     app.add_handler(CommandHandler("nomad", cmd_nomad))
     app.add_handler(CommandHandler("worldtrip", cmd_worldtrip))
     app.add_handler(CommandHandler("status", cmd_status))
+    app.add_handler(CommandHandler("map", cmd_map))
+    app.add_handler(CommandHandler("places", cmd_places))
     app.add_handler(CallbackQueryHandler(cb_handler))
     app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, msg_handler))
     app.add_error_handler(error_handler)

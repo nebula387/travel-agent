@@ -28,6 +28,7 @@ def kb_after_explore(subject: str) -> InlineKeyboardMarkup:
         [_btn("📋 Виза", f"visa:{s}"), _btn("🌤 Погода", f"weather:{s}")],
         [_btn("💰 Стоимость жизни", f"budget:{s}"), _btn("🏠 Для номада", f"nomad:{s}")],
         [_btn("✈️ Найти билеты", f"flights:{s}"), _btn("🗺 Маршрут", f"route:{s}")],
+        [_btn("📍 На карте", f"map:{s}"), _btn("🏨 Места поблизости", f"places:{s}")],
     ])
 
 
