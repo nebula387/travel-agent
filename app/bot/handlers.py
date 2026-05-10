@@ -74,27 +74,46 @@ async def _save_user(user_id: int, **kwargs) -> None:
 # ── LLM helper ─────────────────────────────────────────────────────────────────
 
 async def _llm(prompt: str, timeout: float = 25.0) -> str | None:
-    key = settings.gemini_api_key
-    if not key or key == "placeholder":
-        return None
-    try:
-        import google.generativeai as genai
-        genai.configure(api_key=key)
-        model = genai.GenerativeModel(
-            "gemini-2.0-flash",
-            system_instruction=SYSTEM_PROMPT,
-        )
-        resp = await asyncio.wait_for(
-            model.generate_content_async(prompt),
-            timeout=timeout,
-        )
-        return resp.text
-    except asyncio.TimeoutError:
-        logger.warning("LLM timeout prompt=%s…", prompt[:60])
-        return None
-    except Exception:
-        logger.exception("LLM error")
-        return None
+    # Primary: Gemini
+    if settings.gemini_api_key and settings.gemini_api_key != "placeholder":
+        try:
+            import google.generativeai as genai
+            genai.configure(api_key=settings.gemini_api_key)
+            model = genai.GenerativeModel(
+                "gemini-2.0-flash",
+                system_instruction=SYSTEM_PROMPT,
+            )
+            resp = await asyncio.wait_for(
+                model.generate_content_async(prompt),
+                timeout=timeout,
+            )
+            return resp.text
+        except asyncio.TimeoutError:
+            logger.warning("LLM timeout prompt=%s…", prompt[:60])
+        except Exception:
+            logger.exception("Gemini error, trying Groq fallback")
+
+    # Fallback: Groq
+    if settings.groq_api_key and settings.groq_api_key != "placeholder":
+        try:
+            from groq import AsyncGroq
+            client = AsyncGroq(api_key=settings.groq_api_key)
+            resp = await asyncio.wait_for(
+                client.chat.completions.create(
+                    model="llama-3.3-70b-versatile",
+                    messages=[
+                        {"role": "system", "content": SYSTEM_PROMPT},
+                        {"role": "user", "content": prompt},
+                    ],
+                    max_tokens=1500,
+                ),
+                timeout=timeout,
+            )
+            return resp.choices[0].message.content
+        except Exception:
+            logger.exception("Groq fallback also failed")
+
+    return None
 
 
 # ── Safe send/edit helpers ─────────────────────────────────────────────────────
@@ -295,14 +314,7 @@ async def _do_worldtrip(budget: int, user: User | None) -> tuple[str, InlineKeyb
 # ── Onboarding handlers ────────────────────────────────────────────────────────
 
 async def cmd_start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
-    user = await _get_or_create_user(update.effective_user)
-
-    if user and user.onboarding_done:
-        from app.bot.messages import fmt_welcome_back
-        from app.bot.keyboards import kb_main_menu
-        await _reply(update, fmt_welcome_back(user), kb_main_menu())
-        return ConversationHandler.END
-
+    await _get_or_create_user(update.effective_user)
     from app.bot.messages import MSG_WELCOME_NEW
     await update.effective_message.reply_html(
         MSG_WELCOME_NEW,
