@@ -654,6 +654,17 @@ async def cmd_places(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None
 
 # ── Free-text handler ──────────────────────────────────────────────────────────
 
+_PENDING_DISPATCH = {
+    "explore": _do_explore,
+    "visa": _do_visa,
+    "weather": _do_weather,
+    "budget": _do_budget,
+    "flights": _do_flights,
+    "nomad": _do_nomad,
+    "route": _do_route,
+}
+
+
 async def msg_handler(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     text = update.message.text.strip()
     if not text:
@@ -662,6 +673,16 @@ async def msg_handler(update: Update, context: ContextTypes.DEFAULT_TYPE) -> Non
     user = await _get_or_create_user(update.effective_user)
     if user and not user.onboarding_done:
         await update.message.reply_html("Сначала настрой профиль командой /start 👆")
+        return
+
+    # If user clicked a menu button — route to the right command
+    pending_cmd = context.user_data.pop("pending_cmd", None)
+    if pending_cmd and pending_cmd in _PENDING_DISPATCH:
+        msg = await _reply(update, f"🔍 Загружаю <b>{text}</b>…")
+        await context.bot.send_chat_action(update.effective_chat.id, ChatAction.TYPING)
+        cmd_text, kb = await _PENDING_DISPATCH[pending_cmd](text, user)
+        await _edit(msg, cmd_text, kb)
+        _add_to_history(context, text, cmd_text)
         return
 
     history: list[dict] = context.user_data.setdefault("history", [])
@@ -677,9 +698,7 @@ async def msg_handler(update: Update, context: ContextTypes.DEFAULT_TYPE) -> Non
     )
     answer = await _llm(prompt, history=history)
     if not answer:
-        answer = (
-            "🤖 LLM временно недоступен. Попробуй через минуту или используй команды из /help"
-        )
+        answer = "🤖 LLM временно недоступен. Попробуй через минуту или используй команды из /help"
     else:
         _add_to_history(context, text, answer)
 
@@ -717,12 +736,16 @@ async def cb_handler(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None
                 fmt_help(), parse_mode=ParseMode.HTML, reply_markup=kb_main_menu()
             )
         elif data == "cancel":
+            context.user_data.pop("pending_cmd", None)
             await query.edit_message_text("❌ Отменено.")
         else:
             emoji, hint = menu_prompts[data]
-            from app.bot.keyboards import kb_main_menu
+            cmd_name = data.split(":")[1]
+            if cmd_name in _PENDING_DISPATCH:
+                context.user_data["pending_cmd"] = cmd_name
+            from app.bot.keyboards import kb_cancel
             await query.edit_message_text(
-                f"{emoji} {hint}", parse_mode=ParseMode.HTML, reply_markup=kb_main_menu()
+                f"{emoji} {hint}", parse_mode=ParseMode.HTML, reply_markup=kb_cancel()
             )
         return
 
