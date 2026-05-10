@@ -33,20 +33,25 @@ class BaseAgent:
             except Exception:
                 logger.exception("Gemini failed, trying Groq fallback")
 
-        # Fallback: Groq Llama
+        # Fallback: Groq via httpx (groq SDK incompatible with httpx>=0.28)
         if settings.groq_api_key:
             try:
-                from groq import AsyncGroq
-                client = AsyncGroq(api_key=settings.groq_api_key)
-                resp = await client.chat.completions.create(
-                    model="llama-3.1-70b-versatile",
-                    messages=[
-                        {"role": "system", "content": full_system},
-                        {"role": "user", "content": prompt},
-                    ],
-                    max_tokens=1024,
-                )
-                return resp.choices[0].message.content.strip()
+                import httpx
+                async with httpx.AsyncClient(timeout=30) as client:
+                    resp = await client.post(
+                        "https://api.groq.com/openai/v1/chat/completions",
+                        headers={"Authorization": f"Bearer {settings.groq_api_key}"},
+                        json={
+                            "model": "llama-3.1-70b-versatile",
+                            "messages": [
+                                {"role": "system", "content": full_system},
+                                {"role": "user", "content": prompt},
+                            ],
+                            "max_tokens": 1024,
+                        },
+                    )
+                    resp.raise_for_status()
+                    return resp.json()["choices"][0]["message"]["content"].strip()
             except Exception:
                 logger.exception("Groq fallback also failed")
 

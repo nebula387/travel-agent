@@ -93,23 +93,25 @@ async def _llm(prompt: str, timeout: float = 25.0) -> str | None:
         except Exception:
             logger.exception("Gemini error, trying Groq fallback")
 
-    # Fallback: Groq
+    # Fallback: Groq via httpx (groq SDK incompatible with httpx>=0.28)
     if settings.groq_api_key and settings.groq_api_key != "placeholder":
         try:
-            from groq import AsyncGroq
-            client = AsyncGroq(api_key=settings.groq_api_key)
-            resp = await asyncio.wait_for(
-                client.chat.completions.create(
-                    model="llama-3.3-70b-versatile",
-                    messages=[
-                        {"role": "system", "content": SYSTEM_PROMPT},
-                        {"role": "user", "content": prompt},
-                    ],
-                    max_tokens=1500,
-                ),
-                timeout=timeout,
-            )
-            return resp.choices[0].message.content
+            import httpx
+            async with httpx.AsyncClient(timeout=timeout) as client:
+                resp = await client.post(
+                    "https://api.groq.com/openai/v1/chat/completions",
+                    headers={"Authorization": f"Bearer {settings.groq_api_key}"},
+                    json={
+                        "model": "llama-3.1-70b-versatile",
+                        "messages": [
+                            {"role": "system", "content": SYSTEM_PROMPT},
+                            {"role": "user", "content": prompt},
+                        ],
+                        "max_tokens": 1500,
+                    },
+                )
+                resp.raise_for_status()
+                return resp.json()["choices"][0]["message"]["content"]
         except Exception:
             logger.exception("Groq fallback also failed")
 
